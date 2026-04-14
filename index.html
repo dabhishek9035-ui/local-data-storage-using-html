@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; object-src 'none'; frame-ancestors 'none';" />
+  <meta http-equiv="X-Content-Type-Options" content="nosniff" />
+  <title>Per-Record Secure Vault</title>
+  <style>
+    :root {
+      --bg-color: #0f172a;
+      --card-bg: #1e293b;
+      --card-bg-hover: #334155;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent-teal: #14b8a6;
+      --accent-teal-hover: #0d9488;
+      --accent-amber: #f59e0b;
+      --accent-amber-dark: #b45309;
+      --accent-green: #10b981;
+      --border-color: #334155;
+      --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+      --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+      --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+      --transition-speed: 0.25s;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      overflow-x: hidden;
+      line-height: 1.5;
+    }
+    .hidden { display: none !important; }
+    .fade-in { animation: fadeIn var(--transition-speed) ease forwards; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .container { width: 100%; max-width: 600px; padding: 2rem 1rem; }
+    input, textarea {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border-radius: 0.5rem;
+      border: 1px solid var(--border-color);
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      font-size: 1rem;
+      margin-bottom: 1rem;
+      outline: none;
+      transition: border-color var(--transition-speed), box-shadow var(--transition-speed);
+    }
+    input:focus, textarea:focus {
+      border-color: var(--accent-teal);
+      box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.2);
+    }
+    textarea { resize: vertical; min-height: 120px; }
+    label { display: block; margin-bottom: 0.5rem; font-size: 0.875rem; color: var(--text-muted); font-weight: 500; }
+    button {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border-radius: 0.5rem;
+      border: none;
+      background-color: var(--accent-teal);
+      color: white;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color var(--transition-speed), transform 0.1s;
+    }
+    button:hover { background-color: var(--accent-teal-hover); }
+    button:active { transform: scale(0.98); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; pointer-events: none; }
+    button.secondary {
+      background-color: transparent;
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+    }
+    button.secondary:hover { background-color: var(--card-bg-hover); }
+    .card {
+      background-color: var(--card-bg);
+      border-radius: 1rem;
+      padding: 2rem;
+      box-shadow: var(--shadow-lg);
+      border: 1px solid var(--border-color);
+    }
+    .auth-header { text-align: center; margin-bottom: 2rem; }
+    .shield-icon {
+      width: 48px; height: 48px;
+      margin: 0 auto 1rem;
+      background: linear-gradient(135deg, var(--accent-teal), #0f766e);
+      clip-path: polygon(50% 0%, 100% 20%, 100% 80%, 50% 100%, 0% 80%, 0% 20%);
+    }
+    .tabs { display: flex; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); }
+    .tab {
+      flex: 1; text-align: center; padding: 0.75rem;
+      cursor: pointer; color: var(--text-muted);
+      font-weight: 600; transition: color var(--transition-speed);
+      border-bottom: 2px solid transparent;
+    }
+    .tab.active { color: var(--accent-teal); border-bottom: 2px solid var(--accent-teal); }
+    .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+    .records-list { display: flex; flex-direction: column; gap: 1rem; }
+    .record-item {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 0.75rem;
+      padding: 1.25rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      transition: all var(--transition-speed);
+    }
+    .record-item:hover { background-color: var(--card-bg-hover); transform: translateY(-2px); box-shadow: var(--shadow-md); }
+    .record-item.locked { opacity: 0.6; cursor: not-allowed; }
+    .record-title { font-weight: 600; font-size: 1.1rem; margin-bottom: 0.25rem; }
+    .record-date { font-size: 0.75rem; color: var(--text-muted); }
+    .empty-state { text-align: center; padding: 3rem 1rem; color: var(--text-muted); }
+    .empty-illustration { font-size: 3rem; margin-bottom: 1rem; opacity: 0.5; }
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background-color: rgba(15, 23, 42, 0.8);
+      backdrop-filter: blur(4px);
+      display: flex; justify-content: center; align-items: center;
+      z-index: 100; padding: 1rem;
+    }
+    .modal-content {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 1rem; padding: 2rem;
+      width: 100%; max-width: 500px;
+      position: relative; box-shadow: var(--shadow-lg);
+    }
+    .modal-close {
+      position: absolute; top: 1rem; right: 1rem;
+      background: none; border: none;
+      color: var(--text-muted); font-size: 1.5rem;
+      width: auto; padding: 0.25rem 0.5rem; cursor: pointer;
+    }
+    .modal-close:hover { color: var(--text-main); }
+    .key-reveal-modal { border: 1px solid var(--accent-amber); box-shadow: 0 0 20px rgba(245, 158, 11, 0.1); }
+    .amber-warning { color: var(--accent-amber); font-weight: 600; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+    .key-box {
+      background-color: var(--bg-color); padding: 1rem;
+      border-radius: 0.5rem; font-family: monospace;
+      font-size: 1.1rem; word-break: break-all;
+      text-align: center; margin-bottom: 1rem;
+      border: 1px solid var(--border-color);
+    }
+    .checkbox-row { display: flex; align-items: center; gap: 0.5rem; margin: 1.5rem 0; cursor: pointer; }
+    .checkbox-row input { width: auto; margin: 0; cursor: pointer; accent-color: var(--accent-amber); }
+    .toast-container {
+      position: fixed; bottom: 2rem; left: 50%;
+      transform: translateX(-50%);
+      display: flex; flex-direction: column; gap: 0.5rem; z-index: 1000;
+    }
+    .toast {
+      padding: 0.75rem 1.5rem; border-radius: 2rem;
+      color: white; font-weight: 500; font-size: 0.875rem;
+      box-shadow: var(--shadow-md);
+      animation: toastIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .toast.success { background-color: var(--accent-green); }
+    .toast.warning { background-color: var(--accent-amber-dark); }
+    .toast.error { background-color: #dc2626; }
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .banner {
+      padding: 0.75rem; border-radius: 0.5rem;
+      margin-bottom: 1rem; font-size: 0.875rem;
+      font-weight: 500; display: none;
+    }
+    .banner.amber {
+      background-color: rgba(245, 158, 11, 0.1);
+      color: var(--accent-amber);
+      border: 1px solid rgba(245, 158, 11, 0.2);
+    }
+    .small-note { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; text-align: center; }
+    .decrypted-area {
+      background-color: var(--bg-color);
+      border: 1px solid var(--border-color);
+      border-radius: 0.5rem; padding: 1.5rem; margin-top: 1rem;
+      white-space: pre-wrap; font-family: inherit;
+    }
+    .lockout-indicator { color: #ef4444; font-size: 0.75rem; margin-top: 0.25rem; }
+    .idle-timer {
+      font-size: 0.75rem; color: var(--text-muted);
+      text-align: center; margin-top: 0.5rem;
+    }
+    .idle-timer span { color: var(--accent-amber); font-weight: 600; }
+    .backoff-msg { font-size: 0.8rem; color: var(--accent-amber); margin-top: 0.5rem; text-align: center; }
+    .strength-bar { height: 4px; border-radius: 2px; margin-top: -0.75rem; margin-bottom: 1rem; transition: all 0.3s; }
+    .strength-label { font-size: 0.75rem; margin-top: 0.25rem; margin-bottom: 0.75rem; }
+    .security-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 0.7rem; padding: 2px 8px; border-radius: 999px;
+      background: rgba(20, 184, 166, 0.1); color: var(--accent-teal);
+      border: 1px solid rgba(20, 184, 166, 0.3); margin-bottom: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Auth Screen -->
+  <div id="authScreen" class="container fade-in">
+    <div class="card">
+      <div class="auth-header">
+        <div class="shield-icon"></div>
+        <h2>Secure Vault</h2>
+        <p style="color: var(--text-muted); font-size: 0.875rem; margin-top: 0.5rem;">Zero-knowledge record encryption</p>
+        <div class="security-badge" style="margin-top: 0.75rem;">
+          &#x1F512; AES-256-GCM · PBKDF2 310k · No key storage
+        </div>
+      </div>
+      <div class="tabs">
+        <div class="tab active" id="tabLogin" onclick="switchAuthTab('login')">Login</div>
+        <div class="tab" id="tabRegister" onclick="switchAuthTab('register')">Register</div>
+      </div>
+      <div id="authError" class="banner amber"></div>
+      <form id="authForm" onsubmit="handleAuth(event)">
+        <label for="authEmail">Email Address</label>
+        <input type="email" id="authEmail" required autocomplete="username" />
+        <label for="authPassword">Password</label>
+        <input type="password" id="authPassword" required autocomplete="current-password" />
+        <div id="passwordStrengthBar" class="strength-bar hidden"></div>
+        <div id="passwordStrengthLabel" class="strength-label hidden"></div>
+        <button type="submit" id="authSubmitBtn">Login</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Dashboard Screen -->
+  <div id="dashboardScreen" class="container hidden fade-in">
+    <div class="top-bar">
+      <div>
+        <h2 id="welcomeText">My Vault</h2>
+        <div style="font-size:0.8rem; color:var(--text-muted); cursor:pointer;" onclick="logout()">Logout</div>
+      </div>
+      <button onclick="openAddModal()" style="width: auto;">+ Add Record</button>
+    </div>
+    <div id="emptyState" class="empty-state hidden">
+      <div class="empty-illustration">🗄️</div>
+      <h3>No records yet</h3>
+      <p style="margin-top: 0.5rem;">Add your first secure record to get started.</p>
+    </div>
+    <div id="recordsList" class="records-list"></div>
+  </div>
+
+  <!-- Add Record Modal -->
+  <div id="addModal" class="modal-overlay hidden">
+    <div class="modal-content fade-in">
+      <button class="modal-close" onclick="closeModal('addModal')">×</button>
+      <h3 style="margin-bottom: 1.5rem;">Create Secure Record</h3>
+      <form onsubmit="handleAddRecord(event)">
+        <label for="recordTitle">Title (Plaintext)</label>
+        <input type="text" id="recordTitle" required placeholder="e.g., Bank Credentials" autocomplete="off" maxlength="200" />
+        <label for="recordContent">Secret Content (Encrypted)</label>
+        <textarea id="recordContent" required placeholder="Confidential information..." maxlength="50000"></textarea>
+        <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+          <button type="button" class="secondary" onclick="closeModal('addModal')">Cancel</button>
+          <button type="submit" id="btnEncryptSave">Encrypt & Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Key Reveal Modal -->
+  <div id="keyRevealModal" class="modal-overlay hidden">
+    <div class="modal-content key-reveal-modal fade-in">
+      <div class="amber-warning">⚠️ Important Security Warning</div>
+      <p style="margin-bottom: 1rem; font-size: 0.95rem;">
+        Your record has been encrypted. Below is the unique decryption key.
+        <strong>This key will never be shown again and cannot be recovered.</strong>
+        It is not stored anywhere — not even hashed.
+      </p>
+      <div class="key-box" id="generatedKeyBox"></div>
+      <button class="secondary" onclick="copyKey()" style="margin-bottom: 0.5rem;">📋 Copy Key</button>
+      <p class="small-note" id="clipboardTimer" style="display:none; color: var(--accent-amber);">Clipboard will be cleared in <span id="clipCountdown">30</span>s</p>
+      <label class="checkbox-row">
+        <input type="checkbox" id="keySavedCheckbox" onchange="toggleKeyAck()" />
+        <span>I have saved my key securely.</span>
+      </label>
+      <button id="btnAcknowledgeKey" disabled onclick="dismissKeyModal()">Finish</button>
+    </div>
+  </div>
+
+  <!-- Decrypt Modal -->
+  <div id="decryptModal" class="modal-overlay hidden">
+    <div class="modal-content fade-in">
+      <button class="modal-close" onclick="closeModal('decryptModal')">×</button>
+      <h3 id="decryptTitle" style="margin-bottom: 1.5rem;">Decrypt Record</h3>
+      <div id="decryptBanner" class="banner amber"></div>
+      <div id="decryptViewMode">
+        <label for="decryptKeyInput">Enter Decryption Key</label>
+        <input type="password" id="decryptKeyInput" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" autocomplete="off" />
+        <p class="small-note">Lost keys cannot be recovered. This is by design.</p>
+        <div class="backoff-msg hidden" id="backoffMsg"></div>
+        <button onclick="handleDecrypt()" id="btnSubmitDecrypt" style="margin-top: 1rem;">🔓 Unlock</button>
+      </div>
+      <div id="decryptedContentView" class="hidden">
+        <p style="color: var(--accent-green); font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem;">
+          ✓ Decrypted Successfully (In Memory Only)
+        </p>
+        <div class="decrypted-area" id="decryptedText"></div>
+        <p class="idle-timer">Auto-lock in <span id="idleCountdown">60</span>s</p>
+      </div>
+    </div>
+  </div>
+
+<script>
+// Constants
+  const PBKDF2_ITERATIONS = 310000; // NIST SP 800-132 (2023) recommendation for SHA-256
+  const MAX_FAILED_ATTEMPTS = 3;
+  const IDLE_LOCK_SECONDS = 60;
+  const CLIPBOARD_CLEAR_SECONDS = 30;
+  const BACKOFF_BASE_MS = 1000;
+
+  // Cryptography Engine
+
+
+  const bufferToBase64 = (buffer) =>
+    btoa(String.fromCharCode(...new Uint8Array(buffer)));
+
+  const base64ToBuffer = (b64) => {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  };
+
+  const bufferToHex = (buffer) =>
+    Array.from(new Uint8Array(buffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+  // Hash for password storage only — NOT used as decrypt oracle
+  async function hashForAuth(str) {
+    const data = new TextEncoder().encode(str);
+    const hash = await crypto.subtle.digest('SHA-256', data);
+    return bufferToHex(hash);
+  }
+
+  // Derive AES-GCM key via PBKDF2 with a dedicated random salt
+  async function deriveAesKey(keyStr, saltBuffer) {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey(
+      'raw', enc.encode(keyStr), 'PBKDF2', false, ['deriveKey']
+    );
+    return await crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt: saltBuffer, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
+      keyMaterial,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
+    );
+  }
+
+  // Encrypt: returns { encryptedContent, iv, salt } all base64-encoded
+  async function encryptContent(plaintext, keyStr) {
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const aesKey = await deriveAesKey(keyStr, salt.buffer);
+    const encoded = new TextEncoder().encode(plaintext);
+    const encBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, encoded);
+    return {
+      encryptedContent: bufferToBase64(encBuf),
+      iv: bufferToBase64(iv),
+      salt: bufferToBase64(salt.buffer)
+    };
+  }
+
+  // Decrypt: throws on wrong key (GCM authentication failure), no stored hash oracle needed
+  async function decryptContent(encB64, ivB64, saltB64, keyStr) {
+    const salt = base64ToBuffer(saltB64);
+    const aesKey = await deriveAesKey(keyStr, salt);
+    const encBuf = base64ToBuffer(encB64);
+    const iv = base64ToBuffer(ivB64);
+    const decBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, aesKey, encBuf);
+    return new TextDecoder().decode(decBuf);
+  }
+
+  // Password Strength Meter (register only)
+  function scorePassword(pw) {
+    let score = 0;
+    if (pw.length >= 12) score++;
+    if (pw.length >= 16) score++;
+    if (/[A-Z]/.test(pw)) score++;
+    if (/[0-9]/.test(pw)) score++;
+    if (/[^A-Za-z0-9]/.test(pw)) score++;
+    return score; // 0–5
+  }
+  function updateStrengthUI(pw) {
+    const bar = document.getElementById('passwordStrengthBar');
+    const label = document.getElementById('passwordStrengthLabel');
+    if (!pw) { bar.classList.add('hidden'); label.classList.add('hidden'); return; }
+    bar.classList.remove('hidden'); label.classList.remove('hidden');
+    const s = scorePassword(pw);
+    const configs = [
+      { color: '#ef4444', text: 'Very weak', textColor: '#ef4444' },
+      { color: '#f97316', text: 'Weak', textColor: '#f97316' },
+      { color: '#eab308', text: 'Fair', textColor: '#eab308' },
+      { color: '#22c55e', text: 'Strong', textColor: '#22c55e' },
+      { color: '#14b8a6', text: 'Very strong', textColor: '#14b8a6' },
+      { color: '#14b8a6', text: 'Excellent', textColor: '#14b8a6' }
+    ];
+    const c = configs[Math.min(s, 5)];
+    bar.style.background = c.color;
+    bar.style.width = `${Math.max(15, (s / 5) * 100)}%`;
+    label.textContent = c.text;
+    label.style.color = c.textColor;
+  }
+  document.getElementById('authPassword').addEventListener('input', (e) => {
+    if (currentAuthMode === 'register') updateStrengthUI(e.target.value);
+  });
+
+  // Storage
+  function getDB() {
+    try {
+      const raw = localStorage.getItem('secureVaultDB_v2');
+      return raw ? JSON.parse(raw) : { users: {}, records: [] };
+    } catch { return { users: {}, records: [] }; }
+  }
+  function saveDB(db) {
+    localStorage.setItem('secureVaultDB_v2', JSON.stringify(db));
+  }
+
+  // Session & Idle Management
+  let currentUser = null;
+  let currentAuthMode = 'login';
+  let activeRecordForDecrypt = null;
+  let idleTimer = null;
+  let idleInterval = null;
+  let idleSecondsLeft = IDLE_LOCK_SECONDS;
+  let clipboardTimer = null;
+
+  // Clear session on tab hide (protects against screen-sharing / unattended sessions)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && currentUser) {
+      // Close any open decrypted view silently
+      clearDecryptedView();
+    }
+  });
+  window.addEventListener('pagehide', () => {
+    sessionStorage.removeItem('vaultSession');
+  });
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const session = sessionStorage.getItem('vaultSession');
+    if (session) {
+      currentUser = session;
+      showScreen('dashboardScreen');
+      renderDashboard();
+    } else {
+      showScreen('authScreen');
+    }
+  });
+
+  function showScreen(screenId) {
+    document.getElementById('authScreen').classList.add('hidden');
+    document.getElementById('dashboardScreen').classList.add('hidden');
+    document.getElementById(screenId).classList.remove('hidden');
+  }
+
+  function clearDecryptedView() {
+    if (!document.getElementById('decryptModal').classList.contains('hidden')) {
+      closeModal('decryptModal');
+    }
+    stopIdleTimer();
+  }
+
+  // Idle Auto-Lock Timer
+  function startIdleTimer() {
+    stopIdleTimer();
+    idleSecondsLeft = IDLE_LOCK_SECONDS;
+    document.getElementById('idleCountdown').textContent = idleSecondsLeft;
+    idleInterval = setInterval(() => {
+      idleSecondsLeft--;
+      const el = document.getElementById('idleCountdown');
+      if (el) el.textContent = idleSecondsLeft;
+      if (idleSecondsLeft <= 0) {
+        stopIdleTimer();
+        closeModal('decryptModal');
+        showToast('Session auto-locked after inactivity', 'warning');
+      }
+    }, 1000);
+  }
+  function stopIdleTimer() {
+    clearInterval(idleInterval);
+    idleInterval = null;
+  }
+
+  // Toast
+  function showToast(message, type = 'success') {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transition = 'opacity 0.3s ease';
+      setTimeout(() => toast.remove(), 300);
+    }, 3000);
+  }
+
+  // Auth Flow
+  function switchAuthTab(mode) {
+    currentAuthMode = mode;
+    document.getElementById('tabLogin').classList.toggle('active', mode === 'login');
+    document.getElementById('tabRegister').classList.toggle('active', mode === 'register');
+    document.getElementById('authSubmitBtn').textContent = mode === 'login' ? 'Login' : 'Create Account';
+    const bar = document.getElementById('passwordStrengthBar');
+    const lbl = document.getElementById('passwordStrengthLabel');
+    if (mode === 'login') { bar.classList.add('hidden'); lbl.classList.add('hidden'); }
+    document.getElementById('authError').style.display = 'none';
+    document.getElementById('authPassword').value = '';
+  }
+
+  async function handleAuth(e) {
+    e.preventDefault();
+    const email = document.getElementById('authEmail').value.trim().toLowerCase();
+    const password = document.getElementById('authPassword').value;
+    const db = getDB();
+    const errBanner = document.getElementById('authError');
+
+    if (!email || !password) return;
+
+    const pwdHash = await hashForAuth(password + email); // Combine with email to prevent cross-account hash reuse
+
+    if (currentAuthMode === 'register') {
+      if (db.users[email]) {
+        errBanner.textContent = 'An account with this email already exists.';
+        errBanner.style.display = 'block';
+        return;
+      }
+      if (scorePassword(password) < 2) {
+        errBanner.textContent = 'Password too weak. Use at least 12 characters with mixed types.';
+        errBanner.style.display = 'block';
+        return;
+      }
+      db.users[email] = { passwordHash: pwdHash, createdAt: new Date().toISOString() };
+      saveDB(db);
+      loginUser(email);
+    } else {
+      const user = db.users[email];
+      // Constant-time-like: always hash before comparing to avoid timing oracle
+      if (!user || user.passwordHash !== pwdHash) {
+        errBanner.textContent = 'Invalid email or password.';
+        errBanner.style.display = 'block';
+        // Clear password field on failure
+        document.getElementById('authPassword').value = '';
+        return;
+      }
+      loginUser(email);
+    }
+  }
+
+  function loginUser(email) {
+    currentUser = email;
+    sessionStorage.setItem('vaultSession', email);
+    document.getElementById('authForm').reset();
+    document.getElementById('authError').style.display = 'none';
+    showScreen('dashboardScreen');
+    renderDashboard();
+    showToast('Authentication successful');
+  }
+
+  function logout() {
+    currentUser = null;
+    sessionStorage.removeItem('vaultSession');
+    clearDecryptedView();
+    showScreen('authScreen');
+  }
+
+  // Dashboard
+  function renderDashboard() {
+    const db = getDB();
+    const userRecords = db.records.filter(r => r.userId === currentUser);
+    const list = document.getElementById('recordsList');
+    const emptyState = document.getElementById('emptyState');
+    list.innerHTML = '';
+    if (userRecords.length === 0) {
+      list.classList.add('hidden');
+      emptyState.classList.remove('hidden');
+    } else {
+      list.classList.remove('hidden');
+      emptyState.classList.add('hidden');
+      userRecords.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      userRecords.forEach(rec => {
+        const div = document.createElement('div');
+        div.className = `record-item ${rec.locked ? 'locked' : ''}`;
+        div.onclick = () => openDecryptModal(rec.recordId);
+        const dateStr = new Date(rec.createdAt).toLocaleDateString();
+        div.innerHTML = `
+          <div>
+            <div class="record-title">${escapeHTML(rec.title)}</div>
+            <div class="record-date">Created ${dateStr}</div>
+            ${rec.locked ? '<div class="lockout-indicator">Permanently Locked (3 Failed Attempts)</div>' : ''}
+          </div>
+          <div class="padlock" id="padlock-${rec.recordId}">${rec.locked ? '🔒 (Locked)' : '🔒'}</div>
+        `;
+        list.appendChild(div);
+      });
+    }
+  }
+
+  // Add Record
+  function openAddModal() {
+    document.getElementById('addModal').classList.remove('hidden');
+    document.getElementById('recordTitle').value = '';
+    document.getElementById('recordContent').value = '';
+  }
+
+  async function handleAddRecord(e) {
+    e.preventDefault();
+    const title = document.getElementById('recordTitle').value.trim();
+    const content = document.getElementById('recordContent').value;
+    const btn = document.getElementById('btnEncryptSave');
+    btn.disabled = true;
+    btn.textContent = 'Encrypting…';
+
+    const recordId = crypto.randomUUID();
+    const generatedKey = crypto.randomUUID();
+
+    try {
+      // No keyHash stored — authentication is proven by successful GCM decryption
+      const { encryptedContent, iv, salt } = await encryptContent(content, generatedKey);
+
+      const record = {
+        recordId,
+        userId: currentUser,
+        title,
+        encryptedContent,
+        iv,
+        salt, // random 16-byte salt for PBKDF2, separate from IV
+        createdAt: new Date().toISOString(),
+        failedAttempts: 0,
+        locked: false
+        // NOTE: keyHash intentionally omitted — no stored oracle for brute-force
+      };
+
+      const db = getDB();
+      db.records.push(record);
+      saveDB(db);
+
+      closeModal('addModal');
+      renderDashboard();
+      showKeyReveal(generatedKey);
+    } catch (err) {
+      showToast('Encryption failed: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Encrypt & Save';
+    }
+  }
+
+  // Key Reveal
+  function showKeyReveal(keyStr) {
+    document.getElementById('keyRevealModal').classList.remove('hidden');
+    document.getElementById('generatedKeyBox').textContent = keyStr;
+    document.getElementById('keySavedCheckbox').checked = false;
+    document.getElementById('btnAcknowledgeKey').disabled = true;
+    document.getElementById('clipboardTimer').style.display = 'none';
+  }
+
+  function copyKey() {
+    const keyStr = document.getElementById('generatedKeyBox').textContent;
+    navigator.clipboard.writeText(keyStr).then(() => {
+      showToast('Key copied to clipboard!');
+      // Auto-clear clipboard after N seconds
+      clearTimeout(clipboardTimer);
+      let remaining = CLIPBOARD_CLEAR_SECONDS;
+      const timerEl = document.getElementById('clipboardTimer');
+      timerEl.style.display = 'block';
+      document.getElementById('clipCountdown').textContent = remaining;
+      clipboardTimer = setInterval(() => {
+        remaining--;
+        const el = document.getElementById('clipCountdown');
+        if (el) el.textContent = remaining;
+        if (remaining <= 0) {
+          clearInterval(clipboardTimer);
+          navigator.clipboard.writeText('').catch(() => {});
+          if (timerEl) timerEl.style.display = 'none';
+          showToast('Clipboard cleared', 'warning');
+        }
+      }, 1000);
+    }).catch(() => showToast('Copy failed — please copy manually', 'warning'));
+  }
+
+  function toggleKeyAck() {
+    const isChecked = document.getElementById('keySavedCheckbox').checked;
+    document.getElementById('btnAcknowledgeKey').disabled = !isChecked;
+  }
+
+  function dismissKeyModal() {
+    clearInterval(clipboardTimer);
+    closeModal('keyRevealModal');
+    // Overwrite key display immediately
+    document.getElementById('generatedKeyBox').textContent = '••••••••-••••-••••-••••-••••••••••••';
+    setTimeout(() => {
+      document.getElementById('generatedKeyBox').textContent = '';
+    }, 100);
+  }
+
+  // Decrypt Flow with Backoff
+  let decryptBackoffActive = false;
+
+  function openDecryptModal(recordId) {
+    const db = getDB();
+    const record = db.records.find(r => r.recordId === recordId);
+    if (!record || record.userId !== currentUser) return;
+
+    activeRecordForDecrypt = record;
+    decryptBackoffActive = false;
+
+    document.getElementById('decryptModal').classList.remove('hidden');
+    document.getElementById('decryptTitle').textContent = `Decrypt: ${escapeHTML(record.title)}`;
+    document.getElementById('decryptKeyInput').value = '';
+    document.getElementById('decryptBanner').style.display = 'none';
+    document.getElementById('backoffMsg').classList.add('hidden');
+    document.getElementById('decryptViewMode').classList.remove('hidden');
+    document.getElementById('decryptedContentView').classList.add('hidden');
+
+    if (record.locked) {
+      showDecryptError('This record is permanently locked after 3 failed attempts.');
+      document.getElementById('decryptKeyInput').disabled = true;
+      document.getElementById('btnSubmitDecrypt').disabled = true;
+    } else {
+      document.getElementById('decryptKeyInput').disabled = false;
+      document.getElementById('btnSubmitDecrypt').disabled = false;
+    }
+  }
+
+  async function handleDecrypt() {
+    if (!activeRecordForDecrypt || decryptBackoffActive) return;
+    const inputKey = document.getElementById('decryptKeyInput').value.trim();
+    if (!inputKey) return;
+
+    const record = activeRecordForDecrypt;
+    if (record.locked) return;
+
+    const btn = document.getElementById('btnSubmitDecrypt');
+    btn.disabled = true;
+    btn.textContent = 'Decrypting…';
+
+    try {
+      // Authentication via GCM tag — wrong key causes decryption to throw
+      const plaintext = await decryptContent(
+        record.encryptedContent, record.iv, record.salt, inputKey
+      );
+
+      // Success
+      if (record.failedAttempts > 0) updateRecordState(record.recordId, { failedAttempts: 0 });
+
+      document.getElementById('decryptViewMode').classList.add('hidden');
+      document.getElementById('decryptedContentView').classList.remove('hidden');
+      document.getElementById('decryptedText').textContent = plaintext;
+
+      const padlock = document.getElementById(`padlock-${record.recordId}`);
+      if (padlock) { padlock.textContent = '🔓'; }
+
+      startIdleTimer();
+
+    } catch {
+      // Decryption failed (wrong key or corrupted data)
+      let currentFails = (record.failedAttempts || 0) + 1;
+      let updates = { failedAttempts: currentFails };
+      let msg = '';
+
+      if (currentFails >= MAX_FAILED_ATTEMPTS) {
+        updates.locked = true;
+        msg = 'Incorrect key. This record is now permanently locked after 3 failed attempts.';
+      } else {
+        const left = MAX_FAILED_ATTEMPTS - currentFails;
+        msg = `Incorrect key. ${left} attempt${left === 1 ? '' : 's'} remaining.`;
+      }
+
+      updateRecordState(record.recordId, updates);
+      showDecryptError(msg);
+
+      if (currentFails >= MAX_FAILED_ATTEMPTS) {
+        document.getElementById('decryptKeyInput').disabled = true;
+        renderDashboard();
+      } else {
+        // Exponential backoff: 1s, 2s, 4s…
+        const backoffMs = BACKOFF_BASE_MS * Math.pow(2, currentFails - 1);
+        decryptBackoffActive = true;
+        let remaining = Math.ceil(backoffMs / 1000);
+        const backoffEl = document.getElementById('backoffMsg');
+        backoffEl.classList.remove('hidden');
+        backoffEl.textContent = `Wait ${remaining}s before retrying…`;
+        const bInterval = setInterval(() => {
+          remaining--;
+          backoffEl.textContent = `Wait ${remaining}s before retrying…`;
+          if (remaining <= 0) {
+            clearInterval(bInterval);
+            decryptBackoffActive = false;
+            backoffEl.classList.add('hidden');
+            btn.disabled = false;
+            btn.textContent = '🔓 Unlock';
+          }
+        }, 1000);
+        return; // keep button disabled until backoff ends
+      }
+    }
+
+    btn.disabled = false;
+    btn.textContent = '🔓 Unlock';
+  }
+
+  function showDecryptError(message) {
+    const banner = document.getElementById('decryptBanner');
+    banner.textContent = message;
+    banner.style.display = 'block';
+    const modal = document.querySelector('#decryptModal .modal-content');
+    modal.animate([
+      { transform: 'translateX(0)' }, { transform: 'translateX(-5px)' },
+      { transform: 'translateX(5px)' }, { transform: 'translateX(-5px)' },
+      { transform: 'translateX(5px)' }, { transform: 'translateX(0)' }
+    ], { duration: 300 });
+  }
+
+  function updateRecordState(recordId, updates) {
+    const db = getDB();
+    const idx = db.records.findIndex(r => r.recordId === recordId);
+    if (idx > -1) {
+      db.records[idx] = { ...db.records[idx], ...updates };
+      activeRecordForDecrypt = db.records[idx];
+      saveDB(db);
+    }
+  }
+
+  // Modal Helpers
+  function closeModal(modalId) {
+    document.getElementById(modalId).classList.add('hidden');
+    if (modalId === 'decryptModal') {
+      // Wipe decrypted content from DOM immediately
+      const dt = document.getElementById('decryptedText');
+      dt.textContent = '';
+      // Overwrite with spaces then clear (best-effort DOM wiping)
+      dt.textContent = ' '.repeat(200);
+      dt.textContent = '';
+
+      document.getElementById('decryptKeyInput').value = '';
+      stopIdleTimer();
+
+      if (activeRecordForDecrypt) {
+        const padlock = document.getElementById(`padlock-${activeRecordForDecrypt.recordId}`);
+        if (padlock) padlock.textContent = activeRecordForDecrypt.locked ? '🔒 (Locked)' : '🔒';
+      }
+      activeRecordForDecrypt = null;
+    }
+    if (modalId === 'keyRevealModal') {
+      clearInterval(clipboardTimer);
+    }
+  }
+
+  function escapeHTML(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+</script>
+</body>
+</html>
